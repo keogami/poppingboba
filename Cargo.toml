@@ -4,3 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tui-realm-stdlib = "3.1.0"
+tuirealm = "3.3.0"
