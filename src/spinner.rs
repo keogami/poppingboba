@@ -1,11 +1,8 @@
-use ratatui_core::{
-    style::{Style, Styled},
-    widgets::Widget,
-};
-use ratatui_macros::span;
 use tuirealm::{
     MockComponent, State, StateValue,
     command::{Cmd, CmdResult},
+    props::Style,
+    ratatui::{style::Styled, text::Span, widgets::Widget},
 };
 
 #[derive(Clone, Copy)]
@@ -100,8 +97,11 @@ impl Spinner {
 }
 
 impl Widget for &Spinner {
-    fn render(self, area: ratatui_core::layout::Rect, buf: &mut ratatui_core::buffer::Buffer)
-    where
+    fn render(
+        self,
+        area: tuirealm::ratatui::layout::Rect,
+        buf: &mut tuirealm::ratatui::buffer::Buffer,
+    ) where
         Self: Sized,
     {
         // downsizing global fps to local fps. say 60fps global going down to
@@ -113,7 +113,7 @@ impl Widget for &Spinner {
         let current_frame = current_frame % self.spinner.chars.len() as f32;
         let current_frame = current_frame.floor();
 
-        let span = span!(self.style; self.spinner.chars[current_frame as usize]);
+        let span = Span::styled(self.spinner.chars[current_frame as usize], self.style);
 
         span.render(area, buf);
     }
