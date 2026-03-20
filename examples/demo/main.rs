@@ -1,13 +1,16 @@
 use std::time::Duration;
 
-use poppingboba::spinner::MockSpinner;
+use poppingboba::spinner::{Spinner, SpinnerType};
+use ratatui_core::style::Stylize;
 use tuirealm::{
-    Application, Component, EventListenerCfg, MockComponent, NoUserEvent, PollStrategy, Update,
+    Application, Component, Event, EventListenerCfg, MockComponent, NoUserEvent, PollStrategy,
+    Update,
     command::Cmd,
     event::{Key, KeyEvent, KeyModifiers},
-    ratatui::layout::{Constraint, Direction, Layout},
     terminal::{TerminalAdapter, TerminalBridge},
 };
+
+pub const GLOBAL_FPS: u32 = 60;
 
 #[derive(Debug, PartialEq)]
 pub enum Msg {
@@ -25,21 +28,37 @@ pub enum Id {
 
 #[derive(MockComponent)]
 struct MySpinner {
-    component: MockSpinner,
+    component: Spinner,
 }
 
 impl Component<Msg, NoUserEvent> for MySpinner {
-    fn on(&mut self, ev: tuirealm::Event<NoUserEvent>) -> Option<Msg> {
+    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
         let cmd = match ev {
-            tuirealm::Event::Keyboard(KeyEvent {
+            Event::Keyboard(KeyEvent {
                 code: Key::Char('q'),
                 modifiers: KeyModifiers::NONE,
             }) => return Some(Msg::AppClose),
-            tuirealm::Event::Keyboard(KeyEvent {
+            Event::Keyboard(KeyEvent {
                 code: Key::Char('p'),
                 modifiers: KeyModifiers::NONE,
             }) => Cmd::Tick,
-            tuirealm::Event::Tick => Cmd::Tick,
+            Event::Tick => Cmd::Tick,
+            Event::Keyboard(KeyEvent {
+                code: Key::Char('j'),
+                modifiers: KeyModifiers::NONE,
+            })
+            | Event::Keyboard(KeyEvent {
+                code: Key::Down,
+                modifiers: KeyModifiers::NONE,
+            }) => return Some(Msg::NextSpinner),
+            Event::Keyboard(KeyEvent {
+                code: Key::Char('k'),
+                modifiers: KeyModifiers::NONE,
+            })
+            | Event::Keyboard(KeyEvent {
+                code: Key::Up,
+                modifiers: KeyModifiers::NONE,
+            }) => return Some(Msg::PreviousSpinner),
             _ => Cmd::None,
         };
 
@@ -51,23 +70,23 @@ impl Component<Msg, NoUserEvent> for MySpinner {
 }
 
 impl MySpinner {
-    pub fn new() -> Self {
+    pub fn new(id: usize) -> Self {
         Self {
-            // component: MockSpinner::new(10., [".", "..", "...", "..."]),
-            component: MockSpinner::new(10., &["▱▱▱", "▰▱▱", "▰▰▱", "▰▰▰", "▰▰▱", "▰▱▱", "▱▱▱"]),
+            component: Spinner::new(SPINNERS[id], GLOBAL_FPS),
         }
     }
 }
 
 pub struct Model<T: TerminalAdapter> {
-    // pub app: Application<Id, Msg, NoUserEvent>,
+    pub app: Application<Id, Msg, NoUserEvent>,
     pub quit: bool,
     pub redraw: bool,
     pub terminal: TerminalBridge<T>,
+    pub spinner_id: usize,
 }
 
 impl<T: TerminalAdapter> Model<T> {
-    pub fn view(&mut self, app: &mut Application<Id, Msg, NoUserEvent>) {
+    pub fn view(&mut self) {
         // dbg!("called view on model");
         self.terminal
             .draw(|frame| {
@@ -80,11 +99,23 @@ impl<T: TerminalAdapter> Model<T> {
 
                 // app.view(&Id::Spinner, frame, chunks[0]);
                 // app.view(&Id::Label, frame, chunks[1]);
-                app.view(&Id::Spinner, frame, frame.area());
+                self.app.view(&Id::Spinner, frame, frame.area());
             })
             .expect("to render");
     }
 }
+
+const SPINNERS: [SpinnerType; 9] = [
+    SpinnerType::dot(),
+    SpinnerType::mini_dot(),
+    SpinnerType::line(),
+    SpinnerType::pulse(),
+    SpinnerType::ellipsis(),
+    SpinnerType::jump(),
+    SpinnerType::globe(),
+    SpinnerType::meter(),
+    SpinnerType::moon(),
+];
 
 impl<T: TerminalAdapter> Update<Msg> for Model<T> {
     fn update(&mut self, msg: Option<Msg>) -> Option<Msg> {
@@ -96,6 +127,32 @@ impl<T: TerminalAdapter> Update<Msg> for Model<T> {
                 self.quit = true;
                 None
             }
+            Msg::NextSpinner => {
+                self.spinner_id = (self.spinner_id + 1) % SPINNERS.len();
+                self.app
+                    .remount(
+                        Id::Spinner,
+                        Box::new(MySpinner::new(self.spinner_id)),
+                        Default::default(),
+                    )
+                    .expect("remount to work");
+                None
+            }
+            Msg::PreviousSpinner => {
+                self.spinner_id = if self.spinner_id == 0 {
+                    SPINNERS.len() - 1
+                } else {
+                    self.spinner_id - 1
+                };
+                self.app
+                    .remount(
+                        Id::Spinner,
+                        Box::new(MySpinner::new(self.spinner_id)),
+                        Default::default(),
+                    )
+                    .expect("remount to work");
+                None
+            }
             _ => None,
         }
     }
@@ -105,17 +162,19 @@ fn main() {
     let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
         EventListenerCfg::default()
             .crossterm_input_listener(Duration::from_millis(20), 2)
-            .tick_interval(Duration::from_millis(160)),
+            .tick_interval(Duration::from_secs(1) / GLOBAL_FPS),
     );
 
-    app.mount(Id::Spinner, Box::new(MySpinner::new()), Default::default())
+    app.mount(Id::Spinner, Box::new(MySpinner::new(0)), Default::default())
         .expect("spinner is mounted");
 
     app.active(&Id::Spinner).expect("spinner gets focus");
 
     let mut model = Model {
+        app,
         quit: false,
         redraw: false,
+        spinner_id: 0,
         terminal: TerminalBridge::new_crossterm().expect("bridge to be built"),
     };
 
@@ -129,7 +188,7 @@ fn main() {
         .expect("raw mode is enabled");
 
     while !model.quit {
-        match app.tick(PollStrategy::Once) {
+        match model.app.tick(PollStrategy::Once) {
             Ok(messages) if !messages.is_empty() => {
                 model.redraw = true;
                 for msg in messages {
@@ -143,7 +202,7 @@ fn main() {
         }
 
         if model.redraw {
-            model.view(&mut app);
+            model.view();
             model.redraw = false;
         }
     }
