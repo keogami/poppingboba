@@ -1,15 +1,15 @@
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::time::Duration;
 
 use poppingboba::{
-    key::{Binding, Help, KeyMap},
+    key::{Binding, Help, IntoBinding, KeyMap, KeyMapListener, ShareableKeyMap},
     spinner::{Spinner, SpinnerType},
 };
-use tui_realm_stdlib::Phantom;
+
 use tuirealm::{
-    Application, Component, Event, EventListenerCfg, MockComponent, NoUserEvent, PollStrategy, Sub,
-    SubClause, SubEventClause, Update,
+    Application, Component, Event, EventListenerCfg, MockComponent, NoUserEvent, PollStrategy,
+    Update,
     command::{Cmd, CmdResult},
-    event::Key,
+    event::{Key, KeyEvent, KeyModifiers},
     terminal::{TerminalAdapter, TerminalBridge},
 };
 
@@ -34,30 +34,6 @@ pub enum Id {
 #[derive(MockComponent)]
 struct MySpinner {
     component: Spinner,
-}
-
-#[derive(MockComponent)]
-struct GlobalListner {
-    component: Phantom,
-    key_map: Rc<RefCell<KeyMap<&'static str, Msg>>>,
-}
-
-impl GlobalListner {
-    fn new(key_map: Rc<RefCell<KeyMap<&'static str, Msg>>>) -> Self {
-        Self {
-            key_map,
-            component: Default::default(),
-        }
-    }
-}
-
-impl Component<Msg, NoUserEvent> for GlobalListner {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
-        match ev {
-            Event::Keyboard(ev) => self.key_map.borrow().match_key_event(ev),
-            _ => None,
-        }
-    }
 }
 
 impl Component<Msg, NoUserEvent> for MySpinner {
@@ -87,6 +63,7 @@ pub struct Model<T: TerminalAdapter> {
     pub quit: bool,
     pub redraw: bool,
     pub terminal: TerminalBridge<T>,
+    pub key_map: ShareableKeyMap<&'static str, Msg>,
     pub spinner_id: usize,
 }
 
@@ -149,7 +126,7 @@ impl<T: TerminalAdapter> Update<Msg> for Model<T> {
                     .expect("remount to work");
                 None
             }
-            _ => None,
+            Msg::Tick | Msg::None => None,
         }
     }
 }
@@ -164,31 +141,30 @@ fn main() {
     let key_map = KeyMap::from([
         (
             "quit",
-            Binding::new([Key::Char('q'), Key::Esc], Help::new("q/esc", "quit"))
-                .message(Msg::AppClose),
+            [
+                Key::Char('q').into(),
+                KeyEvent::new(Key::Esc, KeyModifiers::SHIFT),
+            ]
+            .into_binding()
+            .message(Msg::AppClose),
         ),
         (
             "prev",
-            Binding::new([Key::Char('k'), Key::Up], Help::new("k/up", "prev"))
-                .message(Msg::PreviousSpinner),
+            Binding::new([Key::Char('k'), Key::Up]).message(Msg::PreviousSpinner),
         ),
         (
             "next",
-            Binding::new([Key::Char('j'), Key::Down], Help::new("j/down", "next"))
-                .message(Msg::NextSpinner),
+            Binding::new([Key::Char('j'), Key::Down]).message(Msg::NextSpinner),
         ),
     ]);
-    let key_map = Rc::new(RefCell::new(key_map));
+    let key_map = key_map.shareable();
 
     app.mount(Id::Spinner, Box::new(MySpinner::new(0)), Default::default())
         .expect("spinner is mounted");
 
-    app.mount(
-        Id::GlobalListner,
-        Box::new(GlobalListner::new(key_map.clone())),
-        vec![Sub::new(SubEventClause::Any, SubClause::Always)],
-    )
-    .expect("listener to be mounted");
+    let (listener, subs) = KeyMapListener::new(key_map.clone());
+    app.mount(Id::GlobalListner, Box::new(listener), subs)
+        .expect("listener to be mounted");
 
     app.active(&Id::Spinner).expect("spinner gets focus");
 
@@ -197,6 +173,7 @@ fn main() {
         quit: false,
         redraw: false,
         spinner_id: 0,
+        key_map,
         terminal: TerminalBridge::new_crossterm().expect("bridge to be built"),
     };
 
