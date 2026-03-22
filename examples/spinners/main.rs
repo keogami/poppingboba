@@ -8,19 +8,21 @@ use tui_realm_stdlib::Phantom;
 use tuirealm::{
     Application, Component, Event, EventListenerCfg, MockComponent, NoUserEvent, PollStrategy, Sub,
     SubClause, SubEventClause, Update,
-    command::{Cmd, Direction},
+    command::{Cmd, CmdResult},
     event::Key,
     terminal::{TerminalAdapter, TerminalBridge},
 };
 
 pub const GLOBAL_FPS: u32 = 60;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default, Clone, Copy)]
 pub enum Msg {
     AppClose,
     NextSpinner,
     PreviousSpinner,
     Tick,
+    #[default]
+    None,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
@@ -37,11 +39,11 @@ struct MySpinner {
 #[derive(MockComponent)]
 struct GlobalListner {
     component: Phantom,
-    key_map: Rc<RefCell<KeyMap<&'static str>>>,
+    key_map: Rc<RefCell<KeyMap<&'static str, Msg>>>,
 }
 
 impl GlobalListner {
-    fn new(key_map: Rc<RefCell<KeyMap<&'static str>>>) -> Self {
+    fn new(key_map: Rc<RefCell<KeyMap<&'static str, Msg>>>) -> Self {
         Self {
             key_map,
             component: Default::default(),
@@ -51,18 +53,8 @@ impl GlobalListner {
 
 impl Component<Msg, NoUserEvent> for GlobalListner {
     fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
-        let cmd = match ev {
+        match ev {
             Event::Keyboard(ev) => self.key_map.borrow().match_key_event(ev),
-            _ => Cmd::None,
-        };
-
-        match cmd {
-            Cmd::Move(direction) => match direction {
-                Direction::Down => Some(Msg::NextSpinner),
-                Direction::Up => Some(Msg::PreviousSpinner),
-                _ => None,
-            },
-            Cmd::Custom("quit") => Some(Msg::AppClose),
             _ => None,
         }
     }
@@ -76,7 +68,7 @@ impl Component<Msg, NoUserEvent> for MySpinner {
         };
 
         match self.perform(cmd) {
-            tuirealm::command::CmdResult::Changed(..) => Some(Msg::Tick),
+            CmdResult::Changed(..) => Some(Msg::Tick),
             _ => None,
         }
     }
@@ -173,17 +165,17 @@ fn main() {
         (
             "quit",
             Binding::new([Key::Char('q'), Key::Esc], Help::new("q/esc", "quit"))
-                .command(Cmd::Custom("quit")),
+                .message(Msg::AppClose),
         ),
         (
             "prev",
             Binding::new([Key::Char('k'), Key::Up], Help::new("k/up", "prev"))
-                .command(Cmd::Move(Direction::Up)),
+                .message(Msg::PreviousSpinner),
         ),
         (
             "next",
             Binding::new([Key::Char('j'), Key::Down], Help::new("j/down", "next"))
-                .command(Cmd::Move(Direction::Down)),
+                .message(Msg::NextSpinner),
         ),
     ]);
     let key_map = Rc::new(RefCell::new(key_map));

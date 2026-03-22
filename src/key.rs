@@ -4,16 +4,16 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use tuirealm::{command::Cmd, event::KeyEvent};
+use tui_realm_stdlib::Phantom;
+use tuirealm::{Component, Event, MockComponent, Sub, event::KeyEvent};
 
 /// A key binding(s) and its help information
-#[derive(Debug)]
-pub struct Binding {
+pub struct Binding<Msg> {
     /// All the keys that bind to the same action
     keys: Vec<KeyEvent>,
     help: Help,
     disabled: bool,
-    cmd: Cmd,
+    msg: Msg,
 }
 
 /// Help information for bindings
@@ -34,18 +34,20 @@ impl Help {
     }
 }
 
-impl Binding {
+impl<Msg: Default> Binding<Msg> {
     pub fn new(keys: impl IntoIterator<Item = impl Into<KeyEvent>>, help: Help) -> Self {
         Self {
             keys: keys.into_iter().map(|it| it.into()).collect(),
             help,
             disabled: false,
-            cmd: Cmd::None,
+            msg: Msg::default(),
         }
     }
+}
 
-    pub fn command(mut self, cmd: Cmd) -> Self {
-        self.cmd = cmd;
+impl<Msg> Binding<Msg> {
+    pub fn message(mut self, msg: Msg) -> Self {
+        self.msg = msg;
         self
     }
 
@@ -61,17 +63,17 @@ impl Binding {
 }
 
 /// A map of key bindings
-pub struct KeyMap<KeyDescriptor: Ord> {
-    map: BTreeMap<KeyDescriptor, Binding>,
+pub struct KeyMap<KeyDescriptor, Msg = ()> {
+    map: BTreeMap<KeyDescriptor, Binding<Msg>>,
 }
 
-impl<T: Ord, I: Into<BTreeMap<T, Binding>>> From<I> for KeyMap<T> {
+impl<T: Ord, Msg, I: Into<BTreeMap<T, Binding<Msg>>>> From<I> for KeyMap<T, Msg> {
     fn from(value: I) -> Self {
         Self { map: value.into() }
     }
 }
 
-impl<T: Ord> KeyMap<T> {
+impl<T: Ord, Msg: Clone> KeyMap<T, Msg> {
     /// disables the given key binding
     ///
     /// noop if binding doesn't exist
@@ -95,25 +97,62 @@ impl<T: Ord> KeyMap<T> {
     /// Matches key event, returning the first msg
     ///
     /// NOTE: the order of checks can change over versions
-    pub fn match_key_event(&self, ev: KeyEvent) -> Cmd {
+    pub fn match_key_event(&self, ev: KeyEvent) -> Option<Msg> {
         self.values()
             .filter(|binding| !binding.disabled)
             .find(|binding| binding.keys.contains(&ev))
-            .map(|binding| binding.cmd)
-            .unwrap_or(Cmd::None)
+            .map(|binding| binding.msg.clone())
     }
 }
 
-impl<T: Ord> Deref for KeyMap<T> {
-    type Target = BTreeMap<T, Binding>;
+impl<T: Ord, Msg> Deref for KeyMap<T, Msg> {
+    type Target = BTreeMap<T, Binding<Msg>>;
 
     fn deref(&self) -> &Self::Target {
         &self.map
     }
 }
 
-impl<T: Ord> DerefMut for KeyMap<T> {
+impl<T: Ord, Msg> DerefMut for KeyMap<T, Msg> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.map
+    }
+}
+
+pub trait AsKeyMap: AsRef<KeyMap<Self::T, Self::Msg>> {
+    type T;
+    type Msg;
+}
+
+#[derive(MockComponent)]
+pub struct KeyMapListener<K> {
+    component: Phantom,
+    key_map: K,
+}
+
+impl<K, UserEvent> Component<K::Msg, UserEvent> for KeyMapListener<K>
+where
+    UserEvent: PartialEq + Eq + Clone,
+    K: AsKeyMap,
+    K::Msg: PartialEq + Clone,
+    K::T: Ord,
+{
+    fn on(&mut self, ev: tuirealm::Event<UserEvent>) -> Option<K::Msg> {
+        match ev {
+            Event::Keyboard(ev) => self.key_map.as_ref().match_key_event(ev),
+            _ => None,
+        }
+    }
+}
+
+impl<K> KeyMapListener<K>
+where
+    K: AsKeyMap,
+{
+    pub fn new(key_map: K) -> Self {
+        Self {
+            key_map,
+            component: Phantom::default(),
+        }
     }
 }
