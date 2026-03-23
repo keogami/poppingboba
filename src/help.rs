@@ -169,18 +169,22 @@ where
 
                 // measure which columns fit
                 let mut col_widths: Vec<u16> = Vec::new();
+                let mut col_key_widths: Vec<usize> = Vec::new();
                 let mut total_width: u16 = 0;
                 let mut needs_ellipsis = false;
 
                 for (i, col) in columns.iter().enumerate() {
-                    let col_width = col
+                    let max_key_width = col
                         .iter()
-                        .map(|k| {
-                            let h = help_info.help(k);
-                            h.key.len() as u16 + 1 + h.desc.len() as u16
-                        })
+                        .map(|k| help_info.help(k).key.len())
                         .max()
                         .unwrap_or(0);
+                    let max_desc_width = col
+                        .iter()
+                        .map(|k| help_info.help(k).desc.len())
+                        .max()
+                        .unwrap_or(0);
+                    let col_width = max_key_width as u16 + 1 + max_desc_width as u16;
 
                     let with_sep = if i == 0 { 0 } else { sep_width };
                     let needed = with_sep + col_width;
@@ -188,11 +192,13 @@ where
                     if total_width + needed <= area.width {
                         total_width += needed;
                         col_widths.push(needed);
+                        col_key_widths.push(max_key_width);
                     } else {
                         needs_ellipsis = true;
                         // remove columns until ellipsis fits
                         while !col_widths.is_empty() && total_width + ellipsis_width > area.width {
                             total_width -= col_widths.pop().unwrap();
+                            col_key_widths.pop();
                         }
                         break;
                     }
@@ -228,7 +234,9 @@ where
                             );
                         }
 
-                        spans.push(Span::raw(h.key.clone()).style(self.full_key));
+                        let padded_key =
+                            format!("{:<width$}", h.key, width = col_key_widths[i]);
+                        spans.push(Span::raw(padded_key).style(self.full_key));
                         spans.push(Span::raw(" "));
                         spans.push(Span::raw(h.desc.clone()).style(self.full_desc));
 

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use poppingboba::{
     help::{self, HelpWidget},
-    key::{IntoBinding, KeyMap, KeyMapListener, ShareableKeyMap},
+    key::{IntoBinding, KeyMap, KeyMapListener},
     spinner::{Spinner, SpinnerType},
 };
 
@@ -22,10 +22,9 @@ pub enum Msg {
     AppClose,
     NextSpinner,
     PreviousSpinner,
+    #[default]
     Tick,
     FullHelp,
-    #[default]
-    None,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
@@ -67,7 +66,6 @@ pub struct Model<T: TerminalAdapter> {
     pub quit: bool,
     pub redraw: bool,
     pub terminal: TerminalBridge<T>,
-    pub key_map: ShareableKeyMap<&'static str, Msg>,
     pub spinner_id: usize,
 }
 
@@ -162,7 +160,7 @@ impl<T: TerminalAdapter> Update<Msg> for Model<T> {
 
                 None
             }
-            Msg::Tick | Msg::None => None,
+            Msg::Tick => None,
         }
     }
 }
@@ -243,23 +241,12 @@ fn main() {
         quit: false,
         redraw: false,
         spinner_id: 0,
-        key_map,
-        terminal: TerminalBridge::new_crossterm().expect("bridge to be built"),
+        terminal: TerminalBridge::init_crossterm().expect("terminal init"),
     };
-
-    model
-        .terminal
-        .enter_alternate_screen()
-        .expect("enter alt screen");
-    model
-        .terminal
-        .enable_raw_mode()
-        .expect("raw mode is enabled");
 
     while !model.quit {
         match model.app.tick(PollStrategy::Once) {
             Ok(messages) if !messages.is_empty() => {
-                model.redraw = true;
                 for msg in messages {
                     let mut msg = Some(msg);
                     while msg.is_some() {
