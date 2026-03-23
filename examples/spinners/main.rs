@@ -1,16 +1,16 @@
 use std::time::Duration;
 
 use poppingboba::{
-    help::HelpWidget,
-    key::{Binding, IntoBinding, KeyMap, KeyMapListener, ShareableKeyMap},
+    help::{self, HelpWidget},
+    key::{IntoBinding, KeyMap, KeyMapListener, ShareableKeyMap},
     spinner::{Spinner, SpinnerType},
 };
 
 use tuirealm::{
-    Application, Component, Event, EventListenerCfg, MockComponent, NoUserEvent, PollStrategy,
-    Update,
+    Application, Attribute, Component, Event, EventListenerCfg, MockComponent, NoUserEvent,
+    PollStrategy, Update,
     command::{Cmd, CmdResult},
-    event::{Key, KeyEvent, KeyModifiers},
+    event::Key,
     ratatui::layout::{Constraint, Layout},
     terminal::{TerminalAdapter, TerminalBridge},
 };
@@ -23,6 +23,7 @@ pub enum Msg {
     NextSpinner,
     PreviousSpinner,
     Tick,
+    FullHelp,
     #[default]
     None,
 }
@@ -77,8 +78,14 @@ impl<T: TerminalAdapter> Model<T> {
                 let [top_8_lines] = Layout::vertical([Constraint::Max(8)])
                     .flex(tuirealm::ratatui::layout::Flex::Start)
                     .areas(frame.area());
+                let height = self
+                    .app
+                    .query(&Id::Shortcuts, Attribute::Height)
+                    .unwrap()
+                    .unwrap()
+                    .unwrap_size();
                 let [spinner, keyboard] =
-                    Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
+                    Layout::vertical([Constraint::Length(1), Constraint::Length(height)])
                         .flex(tuirealm::ratatui::layout::Flex::SpaceBetween)
                         .areas(top_8_lines);
                 self.app.view(&Id::Spinner, frame, spinner);
@@ -136,6 +143,25 @@ impl<T: TerminalAdapter> Update<Msg> for Model<T> {
                     .expect("remount to work");
                 None
             }
+            Msg::FullHelp => {
+                let prev = self
+                    .app
+                    .query(&Id::Shortcuts, Attribute::Custom(help::SHOW_FULL))
+                    .ok()
+                    .flatten()
+                    .and_then(|value| value.as_flag())
+                    .unwrap_or(true);
+
+                self.app
+                    .attr(
+                        &Id::Shortcuts,
+                        Attribute::Custom(help::SHOW_FULL),
+                        tuirealm::AttrValue::Flag(!prev),
+                    )
+                    .ok();
+
+                None
+            }
             Msg::Tick | Msg::None => None,
         }
     }
@@ -181,8 +207,17 @@ fn main() {
                 .help(("j/down", "next spinner"))
                 .message(Msg::NextSpinner),
         ),
+        (
+            "full",
+            [Key::Char('?'), Key::Down]
+                .into_binding()
+                .help(("?", "toggle help"))
+                .message(Msg::FullHelp),
+        ),
     ]);
-    let key_map = key_map.short_help(&["quit", "prev", "next"]);
+    let key_map = key_map
+        .short_help(&["full", "prev", "next"])
+        .full_help(3, &["quit", "next", "prev", "full"]);
     let key_map = key_map.shareable();
 
     app.mount(Id::Spinner, Box::new(MySpinner::new(0)), Default::default())

@@ -192,7 +192,7 @@ where
     }
 
     fn full_help(&self) -> (&[KeyId], usize) {
-        todo!()
+        (&self.full.0, self.full.1)
     }
 
     fn help(&self, key_id: &KeyId) -> &Help {

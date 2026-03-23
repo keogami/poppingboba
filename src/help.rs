@@ -2,11 +2,15 @@ use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, marker::PhantomData
 
 use tuirealm::{
     MockComponent,
+    props::{Color, Style},
     ratatui::{
+        layout::{Constraint, Layout},
         text::{Line, Span},
         widgets::Widget,
     },
 };
+
+pub const SHOW_FULL: &str = "help_state";
 
 const ELLIPSIS: &str = "…";
 const SHORT_SEP: &str = " • ";
@@ -99,14 +103,38 @@ pub enum HelpState {
 pub struct HelpWidget<KeyId, Info> {
     help_info: Rc<RefCell<Info>>,
     state: HelpState,
+    short_separator: (Cow<'static, str>, Style),
+    short_key: Style,
+    short_desc: Style,
+    full_separator: (Cow<'static, str>, Style),
+    full_key: Style,
+    full_desc: Style,
+    ellipsis: (Cow<'static, str>, Style),
     _marker: PhantomData<KeyId>,
 }
 
 impl<KeyId, Info: HelpInfo<KeyId>> From<Rc<RefCell<Info>>> for HelpWidget<KeyId, Info> {
     fn from(value: Rc<RefCell<Info>>) -> Self {
+        // TODO: make this configurable
+        let is_dark = true;
+
+        let key_style =
+            Style::new().fg(Color::from_u32(if !is_dark { 0x909090 } else { 0x626262 }));
+        let desc_style =
+            Style::new().fg(Color::from_u32(if !is_dark { 0xB2B2B2 } else { 0x4A4A4A }));
+        let sep_style =
+            Style::new().fg(Color::from_u32(if !is_dark { 0xDADADA } else { 0x3C3C3C }));
+
         Self {
             help_info: value.clone(),
             state: HelpState::Short,
+            short_separator: (SHORT_SEP.into(), sep_style),
+            short_key: key_style,
+            short_desc: desc_style,
+            full_separator: (FULL_SEP.into(), sep_style),
+            full_key: key_style,
+            full_desc: desc_style,
+            ellipsis: (ELLIPSIS.into(), sep_style),
             _marker: PhantomData,
         }
     }
@@ -126,11 +154,99 @@ where
     {
         match self.state {
             HelpState::Full => {
-                // noop
+                let separator = &self.full_separator.0;
+                let sep_width = separator.len() as u16;
+                let ellipsis = format!(" {}", self.ellipsis.0);
+                let ellipsis_width = ellipsis.len() as u16;
+                let help_info = self.help_info.borrow();
+                let (full_keys, rows) = help_info.full_help();
+
+                if rows == 0 || full_keys.is_empty() {
+                    return;
+                }
+
+                let columns: Vec<&[KeyId]> = full_keys.chunks(rows).collect();
+
+                // measure which columns fit
+                let mut col_widths: Vec<u16> = Vec::new();
+                let mut total_width: u16 = 0;
+                let mut needs_ellipsis = false;
+
+                for (i, col) in columns.iter().enumerate() {
+                    let col_width = col
+                        .iter()
+                        .map(|k| {
+                            let h = help_info.help(k);
+                            h.key.len() as u16 + 1 + h.desc.len() as u16
+                        })
+                        .max()
+                        .unwrap_or(0);
+
+                    let with_sep = if i == 0 { 0 } else { sep_width };
+                    let needed = with_sep + col_width;
+
+                    if total_width + needed <= area.width {
+                        total_width += needed;
+                        col_widths.push(needed);
+                    } else {
+                        needs_ellipsis = true;
+                        // remove columns until ellipsis fits
+                        while !col_widths.is_empty() && total_width + ellipsis_width > area.width {
+                            total_width -= col_widths.pop().unwrap();
+                        }
+                        break;
+                    }
+                }
+
+                if col_widths.is_empty() {
+                    return;
+                }
+
+                // build horizontal constraints
+                let mut constraints: Vec<Constraint> =
+                    col_widths.iter().map(|&w| Constraint::Length(w)).collect();
+                if needs_ellipsis {
+                    constraints.push(Constraint::Length(ellipsis_width));
+                }
+
+                let col_areas = Layout::horizontal(constraints).split(area);
+
+                // render each column
+                let row_constraints: Vec<Constraint> =
+                    (0..rows).map(|_| Constraint::Length(1)).collect();
+
+                for (i, col) in columns[..col_widths.len()].iter().enumerate() {
+                    let row_areas = Layout::vertical(row_constraints.clone()).split(col_areas[i]);
+
+                    for (j, key_id) in col.iter().enumerate() {
+                        let h = help_info.help(key_id);
+                        let mut spans = Vec::with_capacity(4);
+
+                        if i != 0 {
+                            spans.push(
+                                Span::raw(separator.to_string()).style(self.full_separator.1),
+                            );
+                        }
+
+                        spans.push(Span::raw(h.key.clone()).style(self.full_key));
+                        spans.push(Span::raw(" "));
+                        spans.push(Span::raw(h.desc.clone()).style(self.full_desc));
+
+                        Line::default().spans(spans).render(row_areas[j], buf);
+                    }
+                }
+
+                // render ellipsis
+                if needs_ellipsis {
+                    let ellipsis_area = col_areas[col_widths.len()];
+                    Line::raw(ellipsis)
+                        .style(self.ellipsis.1)
+                        .render(ellipsis_area, buf);
+                }
             }
             HelpState::Short => {
-                let separator = SHORT_SEP;
-                let ellipsis = format!(" {}", ELLIPSIS);
+                let separator = &self.short_separator.0;
+                let ellipsis = format!(" {}", self.ellipsis.0);
                 let help_info = self.help_info.borrow();
                 let short_keys = help_info.short_help();
                 let item_width = |key: &KeyId| {
@@ -174,15 +290,15 @@ where
 
                 for (i, item) in short_keys[..count].iter().enumerate() {
                     if i != 0 {
-                        spans.push(Span::raw(separator));
+                        spans.push(Span::raw(separator.to_string()).style(self.short_separator.1));
                     }
 
-                    spans.push(Span::raw(help_info.help(item).key.clone()));
+                    spans.push(Span::raw(help_info.help(item).key.clone()).style(self.short_key));
                     spans.push(Span::raw(" "));
-                    spans.push(Span::raw(help_info.help(item).desc.clone()));
+                    spans.push(Span::raw(help_info.help(item).desc.clone()).style(self.short_desc));
                 }
                 if needs_ellipsis {
-                    spans.push(Span::raw(ellipsis));
+                    spans.push(Span::raw(ellipsis).style(self.ellipsis.1));
                 }
 
                 let line = Line::default().spans(spans);
@@ -201,12 +317,25 @@ impl<KeyId: Clone, T: HelpInfo<KeyId>> MockComponent for HelpWidget<KeyId, T> {
     fn query(&self, attr: tuirealm::Attribute) -> Option<tuirealm::AttrValue> {
         match attr {
             tuirealm::Attribute::Height => Some(tuirealm::AttrValue::Size(self.height())),
+            tuirealm::Attribute::Custom(SHOW_FULL) => Some(tuirealm::AttrValue::Flag(matches!(
+                self.state,
+                HelpState::Full
+            ))),
             _ => None,
         }
     }
 
-    fn attr(&mut self, _attr: tuirealm::Attribute, _value: tuirealm::AttrValue) {
-        // noop
+    fn attr(&mut self, attr: tuirealm::Attribute, value: tuirealm::AttrValue) {
+        if attr == tuirealm::Attribute::Custom(SHOW_FULL) {
+            let show_full = value.as_flag().unwrap_or(true);
+            let state = if show_full {
+                HelpState::Full
+            } else {
+                HelpState::Short
+            };
+
+            self.state = state;
+        }
     }
 
     fn state(&self) -> tuirealm::State {
@@ -224,11 +353,7 @@ impl<KeyId: Clone, T: HelpInfo<KeyId>> MockComponent for HelpWidget<KeyId, T> {
 
 impl<KeyId, T: HelpInfo<KeyId>> HelpWidget<KeyId, T> {
     pub fn new(info: T) -> Self {
-        Self {
-            help_info: Rc::new(RefCell::new(info)),
-            state: HelpState::Short,
-            _marker: PhantomData,
-        }
+        Self::from(Rc::new(RefCell::new(info)))
     }
 
     pub fn height(&self) -> u16 {
