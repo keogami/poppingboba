@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use poppingboba::{
-    key::{Binding, Help, IntoBinding, KeyMap, KeyMapListener, ShareableKeyMap},
+    help::HelpWidget,
+    key::{Binding, IntoBinding, KeyMap, KeyMapListener, ShareableKeyMap},
     spinner::{Spinner, SpinnerType},
 };
 
@@ -10,6 +11,7 @@ use tuirealm::{
     Update,
     command::{Cmd, CmdResult},
     event::{Key, KeyEvent, KeyModifiers},
+    ratatui::layout::{Constraint, Layout},
     terminal::{TerminalAdapter, TerminalBridge},
 };
 
@@ -29,6 +31,7 @@ pub enum Msg {
 pub enum Id {
     Spinner,
     GlobalListner,
+    Shortcuts,
 }
 
 #[derive(MockComponent)]
@@ -69,10 +72,17 @@ pub struct Model<T: TerminalAdapter> {
 
 impl<T: TerminalAdapter> Model<T> {
     pub fn view(&mut self) {
-        // dbg!("called view on model");
         self.terminal
             .draw(|frame| {
-                self.app.view(&Id::Spinner, frame, frame.area());
+                let [top_8_lines] = Layout::vertical([Constraint::Max(8)])
+                    .flex(tuirealm::ratatui::layout::Flex::Start)
+                    .areas(frame.area());
+                let [spinner, keyboard] =
+                    Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
+                        .flex(tuirealm::ratatui::layout::Flex::SpaceBetween)
+                        .areas(top_8_lines);
+                self.app.view(&Id::Spinner, frame, spinner);
+                self.app.view(&Id::Shortcuts, frame, keyboard);
             })
             .expect("to render");
     }
@@ -131,6 +141,17 @@ impl<T: TerminalAdapter> Update<Msg> for Model<T> {
     }
 }
 
+#[derive(MockComponent)]
+struct Shortcuts {
+    component: HelpWidget<&'static str, KeyMap<&'static str, Msg>>,
+}
+
+impl Component<Msg, NoUserEvent> for Shortcuts {
+    fn on(&mut self, _ev: Event<NoUserEvent>) -> Option<Msg> {
+        None
+    }
+}
+
 fn main() {
     let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
         EventListenerCfg::default()
@@ -141,22 +162,27 @@ fn main() {
     let key_map = KeyMap::from([
         (
             "quit",
-            [
-                Key::Char('q').into(),
-                KeyEvent::new(Key::Esc, KeyModifiers::SHIFT),
-            ]
-            .into_binding()
-            .message(Msg::AppClose),
+            [Key::Char('q'), Key::Esc]
+                .into_binding()
+                .help(("q/esc", "quit"))
+                .message(Msg::AppClose),
         ),
         (
             "prev",
-            Binding::new([Key::Char('k'), Key::Up]).message(Msg::PreviousSpinner),
+            [Key::Char('k'), Key::Up]
+                .into_binding()
+                .help(("k/up", "previous spinner"))
+                .message(Msg::PreviousSpinner),
         ),
         (
             "next",
-            Binding::new([Key::Char('j'), Key::Down]).message(Msg::NextSpinner),
+            [Key::Char('j'), Key::Down]
+                .into_binding()
+                .help(("j/down", "next spinner"))
+                .message(Msg::NextSpinner),
         ),
     ]);
+    let key_map = key_map.short_help(&["quit", "prev", "next"]);
     let key_map = key_map.shareable();
 
     app.mount(Id::Spinner, Box::new(MySpinner::new(0)), Default::default())
@@ -165,6 +191,15 @@ fn main() {
     let (listener, subs) = KeyMapListener::new(key_map.clone());
     app.mount(Id::GlobalListner, Box::new(listener), subs)
         .expect("listener to be mounted");
+
+    app.mount(
+        Id::Shortcuts,
+        Box::new(Shortcuts {
+            component: HelpWidget::from(key_map.clone()),
+        }),
+        Default::default(),
+    )
+    .expect("Mount shortcut component");
 
     app.active(&Id::Spinner).expect("spinner gets focus");
 

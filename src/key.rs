@@ -13,6 +13,8 @@ use tuirealm::{
     event::{Key, KeyEvent},
 };
 
+use crate::help::{Help, HelpInfo};
+
 /// A key binding(s) and its help information
 pub struct Binding<Msg = ()> {
     /// All the keys that bind to the same action
@@ -47,33 +49,6 @@ impl IntoBinding for KeyEvent {
 impl<const N: usize> IntoBinding for [KeyEvent; N] {
     fn into_binding<Msg>(self) -> Binding<Msg> {
         Binding::new(self)
-    }
-}
-
-/// Help information for bindings
-#[derive(Debug)]
-pub struct Help {
-    /// Printable key string for the binding
-    pub key: Cow<'static, str>,
-    /// A short description of the binding
-    pub desc: Cow<'static, str>,
-}
-
-impl Help {
-    pub fn new(key: impl Into<Cow<'static, str>>, desc: impl Into<Cow<'static, str>>) -> Self {
-        Self {
-            key: key.into(),
-            desc: desc.into(),
-        }
-    }
-}
-
-impl<Key: Into<Cow<'static, str>>, Desc: Into<Cow<'static, str>>> From<(Key, Desc)> for Help {
-    fn from((key, desc): (Key, Desc)) -> Self {
-        Self {
-            key: key.into(),
-            desc: desc.into(),
-        }
     }
 }
 
@@ -118,19 +93,32 @@ impl<Msg> Binding<Msg> {
 }
 
 /// A map of key bindings
-pub struct KeyMap<KeyDescriptor, Msg = ()> {
-    map: BTreeMap<KeyDescriptor, Binding<Msg>>,
+pub struct KeyMap<KeyId: Clone + 'static, Msg = ()> {
+    map: BTreeMap<KeyId, Binding<Msg>>,
+    short: Cow<'static, [KeyId]>,
+    full: (Cow<'static, [KeyId]>, usize),
 }
 
 pub type ShareableKeyMap<T, Msg = ()> = Rc<RefCell<KeyMap<T, Msg>>>;
 
-impl<T: Ord, Msg, I: Into<BTreeMap<T, Binding<Msg>>>> From<I> for KeyMap<T, Msg> {
+impl<T, Msg, I> From<I> for KeyMap<T, Msg>
+where
+    T: Ord + Clone,
+    I: Into<BTreeMap<T, Binding<Msg>>>,
+{
     fn from(value: I) -> Self {
-        Self { map: value.into() }
+        Self {
+            map: value.into(),
+            short: Default::default(),
+            full: Default::default(),
+        }
     }
 }
 
-impl<T: Ord, Msg> KeyMap<T, Msg> {
+impl<T, Msg> KeyMap<T, Msg>
+where
+    T: Ord + Clone,
+{
     /// disables the given key binding
     ///
     /// noop if binding doesn't exist
@@ -156,7 +144,23 @@ impl<T: Ord, Msg> KeyMap<T, Msg> {
     }
 }
 
-impl<T: Ord, Msg: Clone> KeyMap<T, Msg> {
+impl<KeyId: Clone, Msg> KeyMap<KeyId, Msg> {
+    pub fn short_help(mut self, short: impl Into<Cow<'static, [KeyId]>>) -> Self {
+        self.short = short.into();
+        self
+    }
+
+    pub fn full_help(mut self, rows: usize, keys: impl Into<Cow<'static, [KeyId]>>) -> Self {
+        self.full = (keys.into(), rows);
+        self
+    }
+}
+
+impl<T, Msg> KeyMap<T, Msg>
+where
+    T: Ord + Clone,
+    Msg: Clone,
+{
     /// Matches key event, returning the first msg
     ///
     /// NOTE: the order of checks can change over versions
@@ -168,7 +172,10 @@ impl<T: Ord, Msg: Clone> KeyMap<T, Msg> {
     }
 }
 
-impl<T: Ord, Msg> Deref for KeyMap<T, Msg> {
+impl<T, Msg> Deref for KeyMap<T, Msg>
+where
+    T: Ord + Clone,
+{
     type Target = BTreeMap<T, Binding<Msg>>;
 
     fn deref(&self) -> &Self::Target {
@@ -176,22 +183,72 @@ impl<T: Ord, Msg> Deref for KeyMap<T, Msg> {
     }
 }
 
-impl<T: Ord, Msg> DerefMut for KeyMap<T, Msg> {
+impl<KeyId, Msg> HelpInfo<KeyId> for KeyMap<KeyId, Msg>
+where
+    KeyId: Clone + Ord,
+{
+    fn short_help(&self) -> &[KeyId] {
+        &self.short
+    }
+
+    fn full_help(&self) -> (&[KeyId], usize) {
+        todo!()
+    }
+
+    fn help(&self, key_id: &KeyId) -> &Help {
+        self.map
+            .get(key_id)
+            .and_then(|k| k.help.as_ref())
+            .expect("The user supplies valid keys")
+    }
+}
+
+impl<T, Msg> DerefMut for KeyMap<T, Msg>
+where
+    T: Ord + Clone,
+{
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.map
     }
 }
 
-#[derive(MockComponent)]
-pub struct KeyMapListener<T, Msg> {
+pub struct KeyMapListener<T, Msg>
+where
+    T: Clone + 'static,
+{
     component: Phantom,
     key_map: ShareableKeyMap<T, Msg>,
+}
+
+impl<T, Msg> MockComponent for KeyMapListener<T, Msg>
+where
+    T: Clone + 'static,
+{
+    fn view(&mut self, frame: &mut tuirealm::Frame, area: tuirealm::ratatui::prelude::Rect) {
+        self.component.view(frame, area);
+    }
+
+    fn query(&self, attr: tuirealm::Attribute) -> Option<tuirealm::AttrValue> {
+        self.component.query(attr)
+    }
+
+    fn attr(&mut self, attr: tuirealm::Attribute, value: tuirealm::AttrValue) {
+        self.component.attr(attr, value);
+    }
+
+    fn state(&self) -> tuirealm::State {
+        self.component.state()
+    }
+
+    fn perform(&mut self, cmd: tuirealm::command::Cmd) -> tuirealm::command::CmdResult {
+        self.component.perform(cmd)
+    }
 }
 
 impl<T, Msg, UserEvent> Component<Msg, UserEvent> for KeyMapListener<T, Msg>
 where
     UserEvent: PartialEq + Eq + Clone,
-    T: Ord,
+    T: Ord + Clone,
     Msg: PartialEq + Clone,
 {
     fn on(&mut self, ev: tuirealm::Event<UserEvent>) -> Option<Msg> {
@@ -202,7 +259,10 @@ where
     }
 }
 
-impl<T, Msg> KeyMapListener<T, Msg> {
+impl<T, Msg> KeyMapListener<T, Msg>
+where
+    T: Clone,
+{
     pub fn new<Id, UserEvent>(key_map: ShareableKeyMap<T, Msg>) -> (Self, Vec<Sub<Id, UserEvent>>)
     where
         Id: Eq + PartialEq + Clone + Hash,
