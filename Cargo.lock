@@ -51,6 +51,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "charmed-harmonica"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52ec4913f175e36c6ab1cf7ff3d3d1153fed1f7c985027ae5800dd20204224f6"
+
+[[package]]
 name = "colorgrad"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -491,6 +497,7 @@ dependencies = [
 name = "poppingboba"
 version = "0.1.0"
 dependencies = [
+ "charmed-harmonica",
  "colorgrad",
  "tui-realm-stdlib",
  "tuirealm",

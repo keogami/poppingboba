@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use harmonica::{Spring, fps};
 use tuirealm::{
     MockComponent,
     props::{Color, Style},
@@ -76,9 +77,10 @@ struct ProgressInner {
     progress: usize,
     max_progress: usize,
     /// the progress value shown when animating
-    show_progress: usize,
+    show_progress: f64,
 
-    animation: Option<()>,
+    /// animation spring and velocity
+    animation: Option<(Spring, f64)>,
 }
 
 #[derive(Clone)]
@@ -114,7 +116,7 @@ impl Progress {
                     .collect(),
             ),
             progress: 0,
-            show_progress: 0,
+            show_progress: 0.,
             max_progress: max,
             animation: None,
         };
@@ -203,15 +205,47 @@ impl Progress {
 
     /// Tick the progress bar forward when using animations
     pub fn tick(&mut self) {
-        // noop for now
+        let mut inner = self.inner();
+        let Some((anim, vel)) = inner.animation else {
+            return;
+        };
+
+        let (new_p, vel) = anim.update(inner.show_progress, vel, inner.progress as f64);
+
+        inner.show_progress = new_p;
+
+        if let Some(it) = inner.animation.as_mut() {
+            it.1 = vel;
+        }
     }
 
-    pub fn inc(&mut self, count: usize) {
+    /// Increments the progress by delta
+    pub fn inc(&mut self, delta: usize) {
         let mut inner = self.inner.lock().unwrap();
-        inner.progress = (inner.progress + count).max(inner.max_progress);
+        inner.progress = (inner.progress + delta).min(inner.max_progress);
         if inner.animation.is_none() {
-            inner.show_progress = inner.progress;
+            inner.show_progress = inner.progress as f64;
         }
+    }
+
+    /// Enables animation with the given spring
+    pub fn animate(mut self, spring: Spring) -> Self {
+        self.inner().animation = Some((spring, 0.));
+        self
+    }
+
+    /// Enables animation with the given fps and default dampness
+    pub fn animate_fps(mut self, f: u32) -> Self {
+        let spring = Spring::new(fps(f), 18., 1.);
+        self.inner().animation = Some((spring, 0.));
+        self
+    }
+
+    /// Enables animation with 60 fps and default dampness
+    pub fn animate_default(mut self) -> Self {
+        let spring = Spring::new(fps(60), 18., 1.);
+        self.inner().animation = Some((spring, 0.));
+        self
     }
 }
 
@@ -240,7 +274,7 @@ impl Widget for &ProgressInner {
             return;
         }
 
-        let percent = self.show_progress as f64 / self.max_progress as f64;
+        let percent = self.show_progress / self.max_progress as f64;
 
         let percent_str = self
             .percentage
@@ -326,8 +360,7 @@ impl Widget for &ProgressInner {
             spans.push(Span::raw(str).style(style));
         }
 
-        let str: String =
-            std::iter::repeat_n(self.filled_char.char(), (tw - fw) as usize).collect();
+        let str: String = std::iter::repeat_n(self.empty_char, (tw - fw) as usize).collect();
         let style = Style::default().fg(self.empty_color);
         spans.push(Span::raw(str).style(style));
 
@@ -368,6 +401,8 @@ impl MockComponent for Progress {
     fn perform(&mut self, cmd: tuirealm::command::Cmd) -> tuirealm::command::CmdResult {
         if let tuirealm::command::Cmd::Tick = cmd {
             self.tick();
+            // pointless, im not sure if it makes any sense
+            return tuirealm::command::CmdResult::Changed(tuirealm::State::None);
         }
         tuirealm::command::CmdResult::None
     }
