@@ -2,6 +2,8 @@
 name = "poppingboba"
 version = "0.1.0"
 edition = "2024"
+description = "Charm's bubbles for ratatui"
+license = "Apache-2.0"
 
 [dependencies]
 charmed-harmonica = "0.2.0"
