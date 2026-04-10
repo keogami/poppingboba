@@ -1,13 +1,10 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use harmonica::{Spring, fps};
-use tuirealm::{
-    MockComponent,
-    props::{Color, Style},
-    ratatui::{
-        text::{Line, Span},
-        widgets::Widget,
-    },
+use ratatui::{
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::Widget,
 };
 
 use colorgrad::{CatmullRomGradient, Color as ColorGradColor, Gradient};
@@ -250,11 +247,8 @@ impl Progress {
 }
 
 impl Widget for &Progress {
-    fn render(
-        self,
-        area: tuirealm::ratatui::prelude::Rect,
-        buf: &mut tuirealm::ratatui::prelude::Buffer,
-    ) where
+    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
+    where
         Self: Sized,
     {
         self.inner.lock().unwrap().render(area, buf);
@@ -262,11 +256,8 @@ impl Widget for &Progress {
 }
 
 impl Widget for &ProgressInner {
-    fn render(
-        self,
-        area: tuirealm::ratatui::prelude::Rect,
-        buf: &mut tuirealm::ratatui::prelude::Buffer,
-    ) where
+    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
+    where
         Self: Sized,
     {
         let max_width = self.width.unwrap_or(area.width).min(area.width);
@@ -378,32 +369,5 @@ impl Widget for &ProgressInner {
         let line = Line::default().spans(spans);
 
         line.render(area, buf);
-    }
-}
-
-impl MockComponent for Progress {
-    fn view(&mut self, frame: &mut tuirealm::Frame, area: tuirealm::ratatui::prelude::Rect) {
-        self.render(area, frame.buffer_mut());
-    }
-
-    fn query(&self, _attr: tuirealm::Attribute) -> Option<tuirealm::AttrValue> {
-        None
-    }
-
-    fn attr(&mut self, _attr: tuirealm::Attribute, _value: tuirealm::AttrValue) {
-        // Noop
-    }
-
-    fn state(&self) -> tuirealm::State {
-        tuirealm::State::None
-    }
-
-    fn perform(&mut self, cmd: tuirealm::command::Cmd) -> tuirealm::command::CmdResult {
-        if let tuirealm::command::Cmd::Tick = cmd {
-            self.tick();
-            // pointless, im not sure if it makes any sense
-            return tuirealm::command::CmdResult::Changed(tuirealm::State::None);
-        }
-        tuirealm::command::CmdResult::None
     }
 }

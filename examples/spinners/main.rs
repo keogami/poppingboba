@@ -1,18 +1,15 @@
 use std::time::Duration;
 
-use poppingboba::{
-    help::{self, HelpWidget},
-    key::{IntoBinding, KeyMap, KeyMapListener},
-    spinner::{Spinner, SpinnerType},
+use ratatui::crossterm::event::{self, Event, KeyCode};
+use ratatui::{
+    layout::{Constraint, Flex, Layout},
+    widgets::Widget,
 };
 
-use tuirealm::{
-    Application, Attribute, Component, Event, EventListenerCfg, MockComponent, NoUserEvent,
-    PollStrategy, Update,
-    command::{Cmd, CmdResult},
-    event::Key,
-    ratatui::layout::{Constraint, Layout},
-    terminal::{TerminalAdapter, TerminalBridge},
+use poppingboba::{
+    help::{HelpState, HelpWidget},
+    key::{IntoBinding, KeyMap},
+    spinner::{Spinner, SpinnerType},
 };
 
 pub const GLOBAL_FPS: u32 = 60;
@@ -27,72 +24,6 @@ pub enum Msg {
     FullHelp,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash)]
-pub enum Id {
-    Spinner,
-    GlobalListner,
-    Shortcuts,
-}
-
-#[derive(MockComponent)]
-struct MySpinner {
-    component: Spinner,
-}
-
-impl Component<Msg, NoUserEvent> for MySpinner {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
-        let cmd = match ev {
-            Event::Tick => Cmd::Tick,
-            _ => Cmd::None,
-        };
-
-        match self.perform(cmd) {
-            CmdResult::Changed(..) => Some(Msg::Tick),
-            _ => None,
-        }
-    }
-}
-
-impl MySpinner {
-    pub fn new(id: usize) -> Self {
-        Self {
-            component: Spinner::new(SPINNERS[id], GLOBAL_FPS),
-        }
-    }
-}
-
-pub struct Model<T: TerminalAdapter> {
-    pub app: Application<Id, Msg, NoUserEvent>,
-    pub quit: bool,
-    pub redraw: bool,
-    pub terminal: TerminalBridge<T>,
-    pub spinner_id: usize,
-}
-
-impl<T: TerminalAdapter> Model<T> {
-    pub fn view(&mut self) {
-        self.terminal
-            .draw(|frame| {
-                let [top_8_lines] = Layout::vertical([Constraint::Max(8)])
-                    .flex(tuirealm::ratatui::layout::Flex::Start)
-                    .areas(frame.area());
-                let height = self
-                    .app
-                    .query(&Id::Shortcuts, Attribute::Height)
-                    .unwrap()
-                    .unwrap()
-                    .unwrap_size();
-                let [spinner, keyboard] =
-                    Layout::vertical([Constraint::Length(1), Constraint::Length(height)])
-                        .flex(tuirealm::ratatui::layout::Flex::SpaceBetween)
-                        .areas(top_8_lines);
-                self.app.view(&Id::Spinner, frame, spinner);
-                self.app.view(&Id::Shortcuts, frame, keyboard);
-            })
-            .expect("to render");
-    }
-}
-
 const SPINNERS: [SpinnerType; 9] = [
     SpinnerType::dot(),
     SpinnerType::mini_dot(),
@@ -105,109 +36,32 @@ const SPINNERS: [SpinnerType; 9] = [
     SpinnerType::moon(),
 ];
 
-impl<T: TerminalAdapter> Update<Msg> for Model<T> {
-    fn update(&mut self, msg: Option<Msg>) -> Option<Msg> {
-        let msg = msg?;
-
-        self.redraw = true;
-        match msg {
-            Msg::AppClose => {
-                self.quit = true;
-                None
-            }
-            Msg::NextSpinner => {
-                self.spinner_id = (self.spinner_id + 1) % SPINNERS.len();
-                self.app
-                    .remount(
-                        Id::Spinner,
-                        Box::new(MySpinner::new(self.spinner_id)),
-                        Default::default(),
-                    )
-                    .expect("remount to work");
-                None
-            }
-            Msg::PreviousSpinner => {
-                self.spinner_id = if self.spinner_id == 0 {
-                    SPINNERS.len() - 1
-                } else {
-                    self.spinner_id - 1
-                };
-                self.app
-                    .remount(
-                        Id::Spinner,
-                        Box::new(MySpinner::new(self.spinner_id)),
-                        Default::default(),
-                    )
-                    .expect("remount to work");
-                None
-            }
-            Msg::FullHelp => {
-                let prev = self
-                    .app
-                    .query(&Id::Shortcuts, Attribute::Custom(help::SHOW_FULL))
-                    .ok()
-                    .flatten()
-                    .and_then(|value| value.as_flag())
-                    .unwrap_or(true);
-
-                self.app
-                    .attr(
-                        &Id::Shortcuts,
-                        Attribute::Custom(help::SHOW_FULL),
-                        tuirealm::AttrValue::Flag(!prev),
-                    )
-                    .ok();
-
-                None
-            }
-            Msg::Tick => None,
-        }
-    }
-}
-
-#[derive(MockComponent)]
-struct Shortcuts {
-    component: HelpWidget<&'static str, KeyMap<&'static str, Msg>>,
-}
-
-impl Component<Msg, NoUserEvent> for Shortcuts {
-    fn on(&mut self, _ev: Event<NoUserEvent>) -> Option<Msg> {
-        None
-    }
-}
-
 fn main() {
-    let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
-        EventListenerCfg::default()
-            .crossterm_input_listener(Duration::from_millis(20), 2)
-            .tick_interval(Duration::from_secs(1) / GLOBAL_FPS),
-    );
-
     let key_map = KeyMap::from([
         (
             "quit",
-            [Key::Char('q'), Key::Esc]
+            [KeyCode::Char('q'), KeyCode::Esc]
                 .into_binding()
                 .help(("q/esc", "quit"))
                 .message(Msg::AppClose),
         ),
         (
             "prev",
-            [Key::Char('k'), Key::Up]
+            [KeyCode::Char('k'), KeyCode::Up]
                 .into_binding()
                 .help(("k/up", "previous spinner"))
                 .message(Msg::PreviousSpinner),
         ),
         (
             "next",
-            [Key::Char('j'), Key::Down]
+            [KeyCode::Char('j'), KeyCode::Down]
                 .into_binding()
                 .help(("j/down", "next spinner"))
                 .message(Msg::NextSpinner),
         ),
         (
             "full",
-            [Key::Char('?'), Key::Down]
+            [KeyCode::Char('?')]
                 .into_binding()
                 .help(("?", "toggle help"))
                 .message(Msg::FullHelp),
@@ -218,50 +72,61 @@ fn main() {
         .full_help(3, &["quit", "next", "prev", "full"]);
     let key_map = key_map.shareable();
 
-    app.mount(Id::Spinner, Box::new(MySpinner::new(0)), Default::default())
-        .expect("spinner is mounted");
+    let mut spinner = Spinner::new(SPINNERS[0], GLOBAL_FPS);
+    let mut spinner_id: usize = 0;
+    let mut help = HelpWidget::from(key_map.clone());
 
-    let (listener, subs) = KeyMapListener::new(key_map.clone());
-    app.mount(Id::GlobalListner, Box::new(listener), subs)
-        .expect("listener to be mounted");
+    let mut terminal = ratatui::init();
+    let tick_rate = Duration::from_secs(1) / GLOBAL_FPS;
 
-    app.mount(
-        Id::Shortcuts,
-        Box::new(Shortcuts {
-            component: HelpWidget::from(key_map.clone()),
-        }),
-        Default::default(),
-    )
-    .expect("Mount shortcut component");
+    loop {
+        terminal
+            .draw(|frame| {
+                let [top_8_lines] = Layout::vertical([Constraint::Max(8)])
+                    .flex(Flex::Start)
+                    .areas(frame.area());
+                let height = help.height();
+                let [spinner_area, keyboard] =
+                    Layout::vertical([Constraint::Length(1), Constraint::Length(height)])
+                        .flex(Flex::SpaceBetween)
+                        .areas(top_8_lines);
+                (&spinner).render(spinner_area, frame.buffer_mut());
+                (&help).render(keyboard, frame.buffer_mut());
+            })
+            .expect("to render");
 
-    app.active(&Id::Spinner).expect("spinner gets focus");
-
-    let mut model = Model {
-        app,
-        quit: false,
-        redraw: false,
-        spinner_id: 0,
-        terminal: TerminalBridge::init_crossterm().expect("terminal init"),
-    };
-
-    while !model.quit {
-        match model.app.tick(PollStrategy::Once) {
-            Ok(messages) if !messages.is_empty() => {
-                for msg in messages {
-                    let mut msg = Some(msg);
-                    while msg.is_some() {
-                        msg = model.update(msg);
+        if event::poll(tick_rate).unwrap_or(false) {
+            if let Ok(Event::Key(key)) = event::read() {
+                if let Some(msg) = key_map.borrow().match_key_event(key) {
+                    match msg {
+                        Msg::AppClose => break,
+                        Msg::NextSpinner => {
+                            spinner_id = (spinner_id + 1) % SPINNERS.len();
+                            spinner = Spinner::new(SPINNERS[spinner_id], GLOBAL_FPS);
+                        }
+                        Msg::PreviousSpinner => {
+                            spinner_id = if spinner_id == 0 {
+                                SPINNERS.len() - 1
+                            } else {
+                                spinner_id - 1
+                            };
+                            spinner = Spinner::new(SPINNERS[spinner_id], GLOBAL_FPS);
+                        }
+                        Msg::FullHelp => {
+                            let new_state = match help.state() {
+                                HelpState::Full => HelpState::Short,
+                                HelpState::Short => HelpState::Full,
+                            };
+                            help.set_state(new_state);
+                        }
+                        Msg::Tick => {}
                     }
                 }
             }
-            _ => {}
         }
 
-        if model.redraw {
-            model.view();
-            model.redraw = false;
-        }
+        spinner.tick();
     }
 
-    let _ = model.terminal.restore();
+    ratatui::restore();
 }

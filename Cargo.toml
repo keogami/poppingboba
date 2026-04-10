@@ -8,5 +8,4 @@ license = "Apache-2.0"
 [dependencies]
 charmed-harmonica = "0.2.0"
 colorgrad = { version = "0.8.0", features = ["lab"] }
-tui-realm-stdlib = "3.1.0"
-tuirealm = "3.3.0"
+ratatui = "0.30.0"

@@ -2,16 +2,11 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::BTreeMap,
-    hash::Hash,
     ops::{Deref, DerefMut},
     rc::Rc,
 };
 
-use tui_realm_stdlib::Phantom;
-use tuirealm::{
-    Component, Event, MockComponent, Sub, SubClause, SubEventClause,
-    event::{Key, KeyEvent},
-};
+use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::help::{Help, HelpInfo};
 
@@ -28,15 +23,15 @@ pub trait IntoBinding {
     fn into_binding<Msg>(self) -> Binding<Msg>;
 }
 
-impl IntoBinding for Key {
+impl IntoBinding for KeyCode {
     fn into_binding<Msg>(self) -> Binding<Msg> {
-        Binding::new([self])
+        Binding::new([KeyEvent::from(self)])
     }
 }
 
-impl<const N: usize> IntoBinding for [Key; N] {
+impl<const N: usize> IntoBinding for [KeyCode; N] {
     fn into_binding<Msg>(self) -> Binding<Msg> {
-        Binding::new(self)
+        Binding::new(self.map(KeyEvent::from))
     }
 }
 
@@ -167,7 +162,7 @@ where
     pub fn match_key_event(&self, ev: KeyEvent) -> Option<Msg> {
         self.values()
             .filter(|binding| !binding.disabled)
-            .find(|binding| binding.keys.contains(&ev))
+            .find(|binding| binding.keys.iter().any(|k| k.code == ev.code && k.modifiers == ev.modifiers))
             .and_then(|binding| binding.msg.clone())
     }
 }
@@ -209,71 +204,5 @@ where
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.map
-    }
-}
-
-pub struct KeyMapListener<T, Msg>
-where
-    T: Clone + 'static,
-{
-    component: Phantom,
-    key_map: ShareableKeyMap<T, Msg>,
-}
-
-impl<T, Msg> MockComponent for KeyMapListener<T, Msg>
-where
-    T: Clone + 'static,
-{
-    fn view(&mut self, frame: &mut tuirealm::Frame, area: tuirealm::ratatui::prelude::Rect) {
-        self.component.view(frame, area);
-    }
-
-    fn query(&self, attr: tuirealm::Attribute) -> Option<tuirealm::AttrValue> {
-        self.component.query(attr)
-    }
-
-    fn attr(&mut self, attr: tuirealm::Attribute, value: tuirealm::AttrValue) {
-        self.component.attr(attr, value);
-    }
-
-    fn state(&self) -> tuirealm::State {
-        self.component.state()
-    }
-
-    fn perform(&mut self, cmd: tuirealm::command::Cmd) -> tuirealm::command::CmdResult {
-        self.component.perform(cmd)
-    }
-}
-
-impl<T, Msg, UserEvent> Component<Msg, UserEvent> for KeyMapListener<T, Msg>
-where
-    UserEvent: PartialEq + Eq + Clone,
-    T: Ord + Clone,
-    Msg: PartialEq + Clone,
-{
-    fn on(&mut self, ev: tuirealm::Event<UserEvent>) -> Option<Msg> {
-        match ev {
-            Event::Keyboard(ev) => self.key_map.borrow().match_key_event(ev),
-            _ => None,
-        }
-    }
-}
-
-impl<T, Msg> KeyMapListener<T, Msg>
-where
-    T: Clone,
-{
-    pub fn new<Id, UserEvent>(key_map: ShareableKeyMap<T, Msg>) -> (Self, Vec<Sub<Id, UserEvent>>)
-    where
-        Id: Eq + PartialEq + Clone + Hash,
-        UserEvent: Eq + PartialEq + Clone,
-    {
-        (
-            Self {
-                key_map,
-                component: Phantom::default(),
-            },
-            vec![Sub::new(SubEventClause::Any, SubClause::Always)],
-        )
     }
 }

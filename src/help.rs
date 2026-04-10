@@ -1,16 +1,11 @@
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, marker::PhantomData, rc::Rc};
 
-use tuirealm::{
-    MockComponent,
-    props::{Color, Style},
-    ratatui::{
-        layout::{Constraint, Layout},
-        text::{Line, Span},
-        widgets::Widget,
-    },
+use ratatui::{
+    layout::{Constraint, Layout},
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::Widget,
 };
-
-pub const SHOW_FULL: &str = "help_state";
 
 const ELLIPSIS: &str = "…";
 const SHORT_SEP: &str = " • ";
@@ -145,11 +140,8 @@ where
     KeyId: Clone,
     T: HelpInfo<KeyId>,
 {
-    fn render(
-        self,
-        area: tuirealm::ratatui::prelude::Rect,
-        buf: &mut tuirealm::ratatui::prelude::Buffer,
-    ) where
+    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
+    where
         Self: Sized,
     {
         match self.state {
@@ -317,48 +309,6 @@ where
     }
 }
 
-impl<KeyId: Clone, T: HelpInfo<KeyId>> MockComponent for HelpWidget<KeyId, T> {
-    fn view(&mut self, frame: &mut tuirealm::Frame, area: tuirealm::ratatui::prelude::Rect) {
-        self.render(area, frame.buffer_mut());
-    }
-
-    fn query(&self, attr: tuirealm::Attribute) -> Option<tuirealm::AttrValue> {
-        match attr {
-            tuirealm::Attribute::Height => Some(tuirealm::AttrValue::Size(self.height())),
-            tuirealm::Attribute::Custom(SHOW_FULL) => Some(tuirealm::AttrValue::Flag(matches!(
-                self.state,
-                HelpState::Full
-            ))),
-            _ => None,
-        }
-    }
-
-    fn attr(&mut self, attr: tuirealm::Attribute, value: tuirealm::AttrValue) {
-        if attr == tuirealm::Attribute::Custom(SHOW_FULL) {
-            let show_full = value.as_flag().unwrap_or(true);
-            let state = if show_full {
-                HelpState::Full
-            } else {
-                HelpState::Short
-            };
-
-            self.state = state;
-        }
-    }
-
-    fn state(&self) -> tuirealm::State {
-        tuirealm::State::One(tuirealm::StateValue::Bool(matches!(
-            self.state,
-            HelpState::Short
-        )))
-    }
-
-    fn perform(&mut self, _cmd: tuirealm::command::Cmd) -> tuirealm::command::CmdResult {
-        // might actually implement `?` binding based on config?
-        tuirealm::command::CmdResult::None
-    }
-}
-
 impl<KeyId, T: HelpInfo<KeyId>> HelpWidget<KeyId, T> {
     pub fn new(info: T) -> Self {
         Self::from(Rc::new(RefCell::new(info)))
@@ -372,5 +322,13 @@ impl<KeyId, T: HelpInfo<KeyId>> HelpWidget<KeyId, T> {
             }
             HelpState::Short => 1,
         }
+    }
+
+    pub fn state(&self) -> HelpState {
+        self.state
+    }
+
+    pub fn set_state(&mut self, state: HelpState) {
+        self.state = state;
     }
 }

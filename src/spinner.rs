@@ -1,8 +1,7 @@
-use tuirealm::{
-    MockComponent, State, StateValue,
-    command::{Cmd, CmdResult},
-    props::Style,
-    ratatui::{style::Styled, text::Span, widgets::Widget},
+use ratatui::{
+    style::{Style, Styled},
+    text::Span,
+    widgets::Widget,
 };
 
 #[derive(Clone, Copy)]
@@ -97,11 +96,8 @@ impl Spinner {
 }
 
 impl Widget for &Spinner {
-    fn render(
-        self,
-        area: tuirealm::ratatui::layout::Rect,
-        buf: &mut tuirealm::ratatui::buffer::Buffer,
-    ) where
+    fn render(self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer)
+    where
         Self: Sized,
     {
         // downsizing global fps to local fps. say 60fps global going down to
@@ -116,38 +112,5 @@ impl Widget for &Spinner {
         let span = Span::styled(self.spinner.chars[current_frame as usize], self.style);
 
         span.render(area, buf);
-    }
-}
-
-impl MockComponent for Spinner {
-    fn view(&mut self, frame: &mut tuirealm::Frame, area: tuirealm::ratatui::prelude::Rect) {
-        self.render(area, frame.buffer_mut());
-    }
-
-    fn query(&self, _attr: tuirealm::Attribute) -> Option<tuirealm::AttrValue> {
-        None
-    }
-
-    fn attr(&mut self, _attr: tuirealm::Attribute, _value: tuirealm::AttrValue) {
-        // noop
-    }
-
-    fn state(&self) -> State {
-        State::One(StateValue::Usize(self.frame))
-    }
-
-    fn perform(&mut self, cmd: Cmd) -> tuirealm::command::CmdResult {
-        // FIXME: we are reporting a change at every frame even if the actual
-        // spinner has a much tinier fps, say 5 or 10
-        //
-        // It is possible to reduce the change result but im not sure whether
-        // keeping extra information is worth the reduced CmdResult::Changed
-        // returned
-        if cmd == Cmd::Tick {
-            self.tick();
-            return CmdResult::Changed(self.state());
-        }
-
-        CmdResult::None
     }
 }
